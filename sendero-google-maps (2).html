@@ -1,0 +1,772 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Sendero: navegación peatonal con Google Maps</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible:wght@400;700&family=JetBrains+Mono:wght@700&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --asfalto:#16181c; --concreto:#22252b; --linea:#3a3e46; --tiza:#f3f0e8; --apagado:#a9adb5;
+    --ambar:#ffb400; --verde:#39d98a; --rojo:#ff5a4f;
+    --fuente:'Atkinson Hyperlegible',system-ui,-apple-system,'Segoe UI',Roboto,sans-serif;
+    --mono:'JetBrains Mono',ui-monospace,Consolas,monospace;
+  }
+  *{box-sizing:border-box}
+  html,body{height:100%;margin:0}
+  body{background:var(--asfalto);color:var(--tiza);font:17px/1.45 var(--fuente);display:flex;flex-direction:column}
+  :focus-visible{outline:3px solid var(--ambar);outline-offset:2px}
+  h1,h2{margin:0;line-height:1.2}
+  h1{font-size:1.35rem;letter-spacing:.01em}
+  h2{font-size:1.05rem;margin-bottom:.6rem}
+
+  .top{display:flex;align-items:center;gap:.9rem;padding:.6rem 1rem;background:var(--concreto);border-bottom:3px solid var(--ambar);padding-top:max(.6rem,env(safe-area-inset-top))}
+  .top .status{margin-left:auto;color:var(--apagado);font-size:.9rem}
+
+  .app{flex:1;min-height:0;display:grid;grid-template-columns:minmax(0,1.5fr) minmax(330px,1fr)}
+  .mapwrap{position:relative;min-height:0;background:#0e0f12}
+  #map{position:absolute;inset:0}
+  .panel{overflow:auto;padding:1rem 1rem calc(2rem + env(safe-area-inset-bottom));border-left:1px solid var(--linea)}
+  .panel section{padding:0 0 1.1rem;margin-bottom:1.1rem;border-bottom:1px solid var(--linea)}
+  .panel section:last-child{border-bottom:0}
+  @media (max-width:860px){
+    .app{grid-template-columns:1fr;grid-template-rows:42dvh minmax(0,1fr)}
+    .panel{border-left:0;border-top:1px solid var(--linea)}
+  }
+
+  button,input{font:inherit;color:inherit}
+  button{min-height:52px;padding:.55rem 1rem;border-radius:12px;border:2px solid var(--linea);background:var(--concreto);cursor:pointer;font-weight:700}
+  button:hover{border-color:var(--apagado)}
+  button:disabled{opacity:.45;cursor:not-allowed}
+  button.primary{background:var(--ambar);border-color:var(--ambar);color:#1a1300}
+  button.danger{border-color:var(--rojo);color:#ffb3ad}
+  button.ghost{min-height:40px;padding:.3rem .8rem;font-weight:400;font-size:.9rem}
+  input[type=text]{width:100%;min-height:52px;padding:.5rem .8rem;border-radius:12px;border:2px solid var(--linea);background:#101216}
+  input[type=text]:focus{border-color:var(--ambar)}
+  .row{display:flex;gap:.6rem}
+  .row > input{flex:1}
+  .grid2{display:grid;grid-template-columns:1fr 1fr;gap:.6rem}
+  .hint{color:var(--apagado);font-size:.9rem;margin:.5rem 0 0}
+  .info{margin-top:.7rem;min-height:1.4em}
+  .info.error{color:#ffb3ad}
+  .info .big{font-size:1.25rem;font-weight:700}
+
+  .light{display:flex;align-items:center;justify-content:space-between;gap:1rem;padding:.9rem 1.1rem;border-radius:14px;border:3px solid var(--linea);background:#101216;margin-bottom:.7rem}
+  .light .lbl{font-weight:700;font-size:1.1rem}
+  .light .cnt{font:700 2.6rem/1 var(--mono)}
+  .light.red{background:#3a1512;border-color:var(--rojo)}
+  .light.green{background:#0f3524;border-color:var(--verde)}
+
+  .reports{display:grid;grid-template-columns:1fr 1fr;gap:.6rem}
+  .reports button{display:flex;align-items:center;gap:.6rem;text-align:left;font-weight:700}
+  .reports .ico{font-size:1.5rem}
+
+  ul.list,ol.log{list-style:none;margin:0;padding:0}
+  .rep{display:flex;align-items:center;gap:.7rem;padding:.6rem 0;border-bottom:1px solid var(--linea)}
+  .rep:last-child{border-bottom:0}
+  .rep .ico{font-size:1.6rem}
+  .rep .txt{flex:1;min-width:0}
+  .rep .meta{color:var(--apagado);font-size:.88rem}
+  .rep button{min-height:44px;font-size:.9rem}
+  ol.log li{padding:.35rem 0;border-bottom:1px dashed var(--linea);font-size:.95rem}
+  ol.log .t{color:var(--apagado);font-family:var(--mono);font-size:.78rem;margin-right:.5rem}
+  ol.log li.user{color:var(--ambar)}
+  ol.log li.alert{color:#ffb3ad}
+  ol.log li.light{color:#9df0c5}
+
+  .me{width:22px;height:22px;border-radius:50%;background:var(--ambar);border:4px solid #fff;box-shadow:0 0 0 7px rgba(255,180,0,.35);transform:translateY(50%)}
+  .pin{width:38px;height:38px;border-radius:50%;display:grid;place-items:center;font-size:1.3rem;background:#1a1300;border:3px solid var(--ambar);transform:translateY(50%);cursor:pointer}
+  .pin.meta{border-color:var(--verde);background:#0f3524}
+
+  .setup{position:fixed;inset:0;z-index:50;background:rgba(10,11,13,.94);display:none;align-items:center;justify-content:center;padding:1rem;overflow:auto}
+  .setup.on{display:flex}
+  .setupbox{width:min(560px,100%);background:var(--concreto);border:1px solid var(--linea);border-top:4px solid var(--ambar);border-radius:16px;padding:1.4rem}
+  .setupbox ol{padding-left:1.2rem;margin:.8rem 0 1rem}
+  .setupbox li{margin-bottom:.4rem}
+  .setupbox a{color:var(--ambar)}
+  .setupbox .err{color:#ffb3ad;margin:.6rem 0 0;min-height:1.4em}
+  @media (prefers-reduced-motion:reduce){*{scroll-behavior:auto!important;transition:none!important;animation:none!important}}
+</style>
+</head>
+<body>
+
+<header class="top">
+  <h1>Sendero</h1>
+  <div class="status" id="gpsStatus">GPS sin activar</div>
+  <button class="ghost" id="btnMute" aria-pressed="false">Voz activada</button>
+</header>
+
+<main class="app">
+  <section class="mapwrap" aria-label="Mapa de Google">
+    <div id="map"></div>
+  </section>
+
+  <aside class="panel">
+    <section aria-labelledby="h-dest">
+      <h2 id="h-dest">Destino</h2>
+      <div class="row">
+        <input id="dest" type="text" placeholder="Ej: Parque de la 93, Bogotá" autocomplete="off" aria-label="Destino">
+        <button class="primary" id="btnRoute">Trazar ruta</button>
+      </div>
+      <p class="hint">También puedes tocar un punto del mapa para elegirlo como destino.</p>
+      <div id="routeInfo" class="info" aria-live="polite"></div>
+    </section>
+
+    <section aria-labelledby="h-nav">
+      <h2 id="h-nav">Recorrido</h2>
+      <div class="grid2">
+        <button class="primary" id="btnGps">Iniciar con GPS</button>
+        <button id="btnSim">Simular caminata</button>
+        <button id="btnVoice">Comando de voz</button>
+        <button id="btnRecalc">Recalcular ruta</button>
+      </div>
+      <button class="danger" id="btnStop" style="width:100%;margin-top:.6rem" disabled>Detener recorrido</button>
+      <p class="hint">Di «ayuda» para escuchar los comandos disponibles.</p>
+    </section>
+
+    <section aria-labelledby="h-light">
+      <h2 id="h-light">Semáforo peatonal</h2>
+      <div class="light" id="light">
+        <span class="lbl" id="lightLabel">Sin cruce cerca</span>
+        <span class="cnt" id="lightCount">--</span>
+      </div>
+      <button id="btnCross" style="width:100%">Estoy en un cruce</button>
+      <p class="hint">Google Maps no entrega el estado de los semáforos. En este prototipo el ciclo es simulado; en la versión real vendría de datos de la ciudad o de sensores.</p>
+    </section>
+
+    <section aria-labelledby="h-rep">
+      <h2 id="h-rep">Reportar algo en la calle</h2>
+      <div class="reports" id="reportGrid"></div>
+      <p class="hint">El reporte se guarda en la posición actual y avisa por voz a quien pase cerca.</p>
+    </section>
+
+    <section aria-labelledby="h-com">
+      <h2 id="h-com">Reportes de la comunidad</h2>
+      <ul class="list" id="reportList"></ul>
+      <div class="grid2" style="margin-top:.7rem">
+        <button id="btnSeed" class="ghost">Cargar ejemplos en la ruta</button>
+        <button id="btnClear" class="ghost">Borrar todos</button>
+      </div>
+    </section>
+
+    <section aria-labelledby="h-log">
+      <h2 id="h-log">Lo que el usuario escucha</h2>
+      <ol class="log" id="log" aria-live="polite"></ol>
+    </section>
+  </aside>
+</main>
+
+<div class="setup" id="setup" role="dialog" aria-modal="true" aria-labelledby="setupTitle">
+  <div class="setupbox">
+    <h2 id="setupTitle">Conecta tu API key de Google Maps</h2>
+    <ol>
+      <li>Consigue una <a href="https://developers.google.com/maps/documentation/javascript/demo-key" target="_blank" rel="noopener">Maps Demo Key</a> (gratis, sin tarjeta) o crea una key con <b>Maps JavaScript API</b> y <b>Routes API</b> habilitadas.</li>
+      <li>Pégala aquí. Se guarda solo en este navegador.</li>
+      <li>Abre esta página desde <b>http://localhost</b> y no desde un archivo, para que el GPS y el micrófono funcionen.</li>
+    </ol>
+    <input id="keyInput" type="text" placeholder="Pega tu API key" autocomplete="off" spellcheck="false" aria-label="API key de Google Maps">
+    <p class="err" id="setupErr" role="alert"></p>
+    <button class="primary" id="btnLoad" style="width:100%">Cargar mapa</button>
+  </div>
+</div>
+
+<script>
+(() => {
+'use strict';
+
+/* ============================================================
+   0. CONSTANTES Y UTILIDADES
+   ============================================================ */
+const KEY_STORAGE = 'sendero.gmkey';
+const REP_STORAGE = 'sendero.reports.v1';
+const DEFAULT_START = { lat: 4.6455, lng: -74.0635 };  // Chapinero, Bogotá (solo si no hay GPS)
+const SIM_SPEED = 9;          // metros por segundo en la simulación (una caminata real ronda 1,4)
+const RED_SECS = 10, GREEN_SECS = 12;   // ciclo del semáforo simulado
+const ALERT_RADIUS = 25;      // metros a los que se avisa de un reporte
+const STEP_RADIUS = 30;       // metros a los que se anuncia la siguiente indicación
+
+const $ = id => document.getElementById(id);
+const store = {
+  get(k){ try { return localStorage.getItem(k); } catch(e){ return null; } },
+  set(k,v){ try { localStorage.setItem(k,v); } catch(e){} },
+  del(k){ try { localStorage.removeItem(k); } catch(e){} }
+};
+const norm = t => t.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'');
+const vibrate = p => { try { navigator.vibrate && navigator.vibrate(p); } catch(e){} };
+
+function haversine(a,b){
+  const R = 6371000, rad = Math.PI/180;
+  const dLat = (b.lat-a.lat)*rad, dLng = (b.lng-a.lng)*rad;
+  const s = Math.sin(dLat/2)**2 + Math.cos(a.lat*rad)*Math.cos(b.lat*rad)*Math.sin(dLng/2)**2;
+  return 2*R*Math.asin(Math.sqrt(s));
+}
+const fmtDist = m => m < 1000 ? `${Math.max(10, Math.round(m/10)*10)} m` : `${(m/1000).toFixed(1)} km`;
+const sayDist = m => m < 1000 ? `${Math.max(10, Math.round(m/10)*10)} metros` : `${(m/1000).toFixed(1).replace('.',',')} kilómetros`;
+const minutes = m => Math.max(1, Math.round(m/80));   // ~4,8 km/h
+const sayMin = m => { const n = minutes(m); return n === 1 ? 'un minuto' : `${n} minutos`; };
+
+const TYPES = {
+  alcantarilla: { label:'Alcantarilla sin tapa', ico:'⛔', say:'alcantarilla sin tapa' },
+  hueco:        { label:'Hueco en el piso',      ico:'🕳️', say:'hueco en el piso' },
+  obstaculo:    { label:'Obstáculo en el andén', ico:'🧱', say:'obstáculo en el andén' },
+  obra:         { label:'Obra en la vía',        ico:'🚧', say:'obra en la vía' },
+  semaforo:     { label:'Semáforo dañado',       ico:'🚦', say:'semáforo dañado' },
+  vehiculo:     { label:'Vehículo en el andén',  ico:'🚗', say:'vehículo sobre el andén' }
+};
+const MAN = {
+  TURN_LEFT:'Gira a la izquierda', TURN_RIGHT:'Gira a la derecha',
+  TURN_SLIGHT_LEFT:'Gira levemente a la izquierda', TURN_SLIGHT_RIGHT:'Gira levemente a la derecha',
+  TURN_SHARP_LEFT:'Gira cerrado a la izquierda', TURN_SHARP_RIGHT:'Gira cerrado a la derecha',
+  UTURN_LEFT:'Da la vuelta', UTURN_RIGHT:'Da la vuelta', STRAIGHT:'Sigue derecho'
+};
+
+/* ============================================================
+   1. ESTADO DE LA APP
+   ============================================================ */
+const state = {
+  map:null, G:{}, meMarker:null, destMarker:null, line:null, repMarkers:[],
+  route:null, dest:null,
+  pos:null, acc:0,
+  mode:null,                 // null | 'gps' | 'sim'
+  nextStep:0, watchId:null, simTimer:null, simDist:0, simCross:1,
+  reports:[], warned:new Set(),
+  muted:false, voice:null, ac:null, lastNav:'', lastOff:0, listening:false, posErrShown:false
+};
+let bootstrapped = false;
+
+/* ============================================================
+   2. VOZ: hablar, pitidos y registro en pantalla
+   ============================================================ */
+function log(text, kind=''){
+  const li = document.createElement('li');
+  if (kind) li.className = kind;
+  const t = document.createElement('span');
+  t.className = 't';
+  t.textContent = new Date().toLocaleTimeString('es-CO',{hour:'2-digit',minute:'2-digit',second:'2-digit'});
+  li.append(t, document.createTextNode(text));
+  const ol = $('log');
+  ol.prepend(li);
+  while (ol.children.length > 40) ol.lastChild.remove();
+}
+
+function pickVoice(){
+  if (!('speechSynthesis' in window)) return;
+  const vs = speechSynthesis.getVoices();
+  state.voice = vs.find(v => /^es[-_]CO/i.test(v.lang)) || vs.find(v => /^es/i.test(v.lang)) || null;
+}
+if ('speechSynthesis' in window){ pickVoice(); speechSynthesis.onvoiceschanged = pickVoice; }
+
+function speak(text, opts={}){
+  log(text, opts.kind);
+  if (opts.kind === 'nav') state.lastNav = text;
+  if (state.muted || !('speechSynthesis' in window)) return;
+  if (opts.interrupt) speechSynthesis.cancel();
+  const u = new SpeechSynthesisUtterance(text);
+  u.lang = state.voice ? state.voice.lang : 'es-CO';
+  if (state.voice) u.voice = state.voice;
+  u.rate = 1;
+  speechSynthesis.speak(u);
+}
+
+function primeAudio(){
+  if (!state.ac){
+    const AC = window.AudioContext || window.webkitAudioContext;
+    if (AC) state.ac = new AC();
+  }
+  if (state.ac && state.ac.state === 'suspended') state.ac.resume();
+}
+function beep(freq=880, dur=0.12, vol=0.25){
+  if (state.muted || !state.ac) return;
+  const o = state.ac.createOscillator(), g = state.ac.createGain(), t = state.ac.currentTime;
+  o.type = 'sine'; o.frequency.value = freq;
+  g.gain.setValueAtTime(vol, t);
+  g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+  o.connect(g); g.connect(state.ac.destination);
+  o.start(t); o.stop(t + dur + 0.02);
+}
+
+/* ============================================================
+   3. SEMÁFORO PEATONAL (SIMULADO)
+   ============================================================ */
+const light = { state:'idle', left:0, timer:null };
+
+function renderLight(){
+  const box = $('light');
+  box.className = 'light' + (light.state === 'red' ? ' red' : light.state === 'green' ? ' green' : '');
+  $('lightLabel').textContent = light.state === 'red' ? 'Rojo: espera' : light.state === 'green' ? 'Verde: puedes cruzar' : 'Sin cruce cerca';
+  $('lightCount').textContent = light.state === 'idle' ? '--' : String(light.left);
+}
+function stopCrossing(){
+  clearInterval(light.timer); light.timer = null; light.state = 'idle'; light.left = 0; renderLight();
+}
+function startCrossing(){
+  primeAudio(); clearInterval(light.timer);
+  light.state = 'red'; light.left = RED_SECS; renderLight();
+  speak('Llegaste a un cruce. Semáforo en rojo. Espera.', {kind:'light'});
+  light.timer = setInterval(lightTick, 1000);
+}
+function lightTick(){
+  light.left--;
+  if (light.state === 'red'){
+    if (light.left > 0){
+      beep(330, .15);                                   // rojo: un pitido grave por segundo
+      if (light.left === 3) speak('Verde en tres segundos.', {kind:'light'});
+    } else {
+      light.state = 'green'; light.left = GREEN_SECS;
+      beep(1040, .18);
+      speak(`Semáforo en verde. Puedes cruzar. Tienes ${GREEN_SECS} segundos.`, {kind:'light', interrupt:true});
+      vibrate(300);
+    }
+  } else if (light.state === 'green'){
+    if (light.left > 0){
+      beep(1040, .07); setTimeout(() => beep(1040, .07), 160);   // verde: doble pitido agudo
+      if (light.left === 4) speak('Quedan cuatro segundos. Apura el paso.', {kind:'light'});
+    } else {
+      speak('Cruce terminado. El semáforo vuelve a rojo.', {kind:'light'});
+      stopCrossing(); return;
+    }
+  }
+  renderLight();
+}
+
+/* ============================================================
+   4. MAPA Y RUTA (Google Maps JavaScript API + clase Route)
+   ============================================================ */
+const ll = p => p ? { lat: typeof p.lat === 'function' ? p.lat() : p.lat,
+                      lng: typeof p.lng === 'function' ? p.lng() : p.lng } : null;
+
+function buildGeometry(r){
+  r.cum = [0];
+  for (let i = 1; i < r.path.length; i++) r.cum.push(r.cum[i-1] + haversine(r.path[i-1], r.path[i]));
+  r.total = r.cum[r.cum.length-1];
+  r.stepCum = r.steps.map(s => s.start ? r.cum[nearestIdx(s.start, r)] : 0);
+  return r;
+}
+function nearestIdx(p, r=state.route){
+  let best = 0, bd = Infinity;
+  for (let i = 0; i < r.path.length; i++){
+    const d = haversine(p, r.path[i]);
+    if (d < bd){ bd = d; best = i; }
+  }
+  return best;
+}
+function pointAt(d){
+  const r = state.route, path = r.path, cum = r.cum;
+  if (d <= 0) return path[0];
+  if (d >= r.total) return path[path.length-1];
+  let i = 1; while (i < cum.length && cum[i] < d) i++;
+  const a = path[i-1], b = path[i], seg = (cum[i]-cum[i-1]) || 1, f = (d-cum[i-1]) / seg;
+  return { lat: a.lat + (b.lat-a.lat)*f, lng: a.lng + (b.lng-a.lng)*f };
+}
+
+function normalizeRoute(r){
+  const path = (r.path || []).map(ll);
+  const steps = [];
+  (r.legs || []).forEach(leg => (leg.steps || []).forEach(s => {
+    const txt = String(s.instructions || '').replace(/<[^>]+>/g,'').trim();
+    steps.push({ text: txt || MAN[s.maneuver] || 'Continúa', maneuver: s.maneuver || '', dist: s.distanceMeters || 0,
+                 start: ll(s.startLocation), end: ll(s.endLocation) });
+  }));
+  if (path.length < 2) throw new Error('SIN_RUTA');
+  if (!steps.length) steps.push({ text:'Camina hacia el destino', maneuver:'STRAIGHT', dist:0, start:path[0], end:path[path.length-1] });
+  return buildGeometry({ path, steps });
+}
+
+// Plan B para la clase: línea recta entre dos puntos (solo cuando el destino se tocó en el mapa)
+function straightRoute(a, b){
+  const n = Math.max(2, Math.ceil(haversine(a,b)/15)), path = [];
+  for (let i = 0; i <= n; i++) path.push({ lat: a.lat+(b.lat-a.lat)*i/n, lng: a.lng+(b.lng-a.lng)*i/n });
+  return buildGeometry({ path, fallback:true,
+    steps:[{ text:'Camina en línea recta hacia el destino', maneuver:'STRAIGHT', dist:haversine(a,b), start:a, end:b }] });
+}
+
+async function requestRoute(origin, dest){
+  const { routes } = await state.G.Route.computeRoutes({
+    origin, destination: dest, travelMode: 'WALKING', language: 'es', region: 'co',
+    polylineQuality: 'HIGH_QUALITY',
+    fields: ['path', 'legs']
+  });
+  if (!routes || !routes.length) throw new Error('SIN_RUTA');
+  return normalizeRoute(routes[0]);
+}
+
+function explainRouteError(e){
+  const m = String((e && e.message) || e);
+  if (/SIN_RUTA|ZERO_RESULTS|NOT_FOUND/i.test(m)) return 'No encontré esa dirección o no hay ruta a pie. Escribe el barrio y la ciudad, o toca un punto en el mapa.';
+  if (/not been used|disabled|not enabled|PERMISSION|REQUEST_DENIED|403/i.test(m)) return 'Google negó la petición de rutas. Habilita «Routes API» en tu proyecto (o usa la Maps Demo Key) y revisa que la restricción de la key permita esta dirección.';
+  if (/OVER_QUERY|RESOURCE_EXHAUSTED|quota/i.test(m)) return 'La key superó su cuota diaria. Prueba mañana o revisa la cuota en Google Cloud.';
+  return 'No se pudo calcular la ruta: ' + m;
+}
+
+function getOrigin(){
+  return new Promise(resolve => {
+    if (state.pos) return resolve(state.pos);
+    const fallback = () => {
+      speak('No pude usar tu GPS. Uso un punto de partida de ejemplo en Chapinero.', {kind:'info'});
+      updatePos(DEFAULT_START, 0); resolve(state.pos);
+    };
+    if (!navigator.geolocation) return fallback();
+    navigator.geolocation.getCurrentPosition(
+      p => { updatePos({ lat:p.coords.latitude, lng:p.coords.longitude }, p.coords.accuracy); resolve(state.pos); },
+      fallback, { enableHighAccuracy:true, timeout:8000, maximumAge:30000 });
+  });
+}
+
+async function traceRoute(dest){
+  if (!state.map) return;
+  if (state.mode) stopNav(true);
+  const info = $('routeInfo');
+  info.className = 'info'; info.textContent = 'Calculando ruta…';
+  primeAudio();
+  let destination = dest;
+  if (typeof dest === 'string'){
+    destination = /bogot/i.test(dest) ? dest : dest + ', Bogotá, Colombia';
+  }
+  const origin = await getOrigin();
+  let route, warn = '';
+  try {
+    route = await requestRoute(origin, destination);
+  } catch (e) {
+    console.error('computeRoutes falló:', e);
+    if (dest && typeof dest === 'object'){
+      route = straightRoute(origin, dest);
+      warn = 'No pude pedir la ruta a Google, así que dibujé una línea recta solo para la demo. ' + explainRouteError(e);
+    } else {
+      info.className = 'info error'; info.textContent = explainRouteError(e);
+      speak('No pude calcular la ruta.', {kind:'alert', interrupt:true});
+      return;
+    }
+  }
+  state.route = route; state.dest = dest;
+  drawRoute(route);
+  const meters = route.total;
+  info.className = 'info' + (warn ? ' error' : '');
+  info.innerHTML = '';
+  const b = document.createElement('span'); b.className = 'big'; b.textContent = `${fmtDist(meters)}, unos ${minutes(meters)} min a pie`;
+  info.append(b, document.createTextNode(` (${route.steps.length} ${route.steps.length === 1 ? 'indicación' : 'indicaciones'})`));
+  if (warn){ const p = document.createElement('div'); p.textContent = warn; info.append(p); }
+  speak(`Ruta lista. ${sayDist(meters)} caminando, unos ${sayMin(meters)}. Di iniciar o pulsa Iniciar con GPS.`, {kind:'nav', interrupt:true});
+  renderReports();
+}
+
+function drawRoute(r){
+  const { G, map } = state;
+  if (state.line) state.line.setMap(null);
+  if (state.destMarker) state.destMarker.map = null;
+  state.line = new G.Polyline({ path:r.path, strokeColor:'#ffb400', strokeOpacity:.95, strokeWeight:7, map });
+  const end = r.path[r.path.length-1];
+  const flag = document.createElement('div'); flag.className = 'pin meta'; flag.textContent = '🏁';
+  state.destMarker = new G.AdvancedMarkerElement({ map, position:end, content:flag, title:'Destino' });
+  const b = new G.LatLngBounds();
+  r.path.forEach(p => b.extend(p));
+  if (state.pos) b.extend(state.pos);
+  map.fitBounds(b, 60);
+}
+
+/* ============================================================
+   5. POSICIÓN, GPS Y SIMULACIÓN
+   ============================================================ */
+function updatePos(p, acc){
+  state.pos = { lat:p.lat, lng:p.lng }; state.acc = acc || 0;
+  if (state.meMarker) state.meMarker.position = state.pos;
+  $('gpsStatus').textContent = state.mode === 'sim' ? 'Simulando caminata'
+    : acc ? `GPS activo, precisión ${Math.round(acc)} m` : 'Punto de ejemplo';
+  if (state.mode && state.map) state.map.panTo(state.pos);
+  if (state.mode) progress(state.pos);
+}
+
+function startWatch(){
+  if (!navigator.geolocation){ speak('Este navegador no tiene GPS.', {kind:'alert'}); return false; }
+  state.posErrShown = false;
+  state.watchId = navigator.geolocation.watchPosition(
+    p => updatePos({ lat:p.coords.latitude, lng:p.coords.longitude }, p.coords.accuracy),
+    () => { if (!state.posErrShown){ state.posErrShown = true; speak('No puedo obtener tu ubicación. Revisa el permiso de ubicación del navegador.', {kind:'alert'}); } },
+    { enableHighAccuracy:true, maximumAge:1000, timeout:15000 });
+  return true;
+}
+function startSim(){
+  state.simDist = 0; state.simCross = 1;
+  state.mode = 'sim';
+  updatePos(state.route.path[0], 5);
+  state.simTimer = setInterval(simTick, 500);
+}
+function simTick(){
+  if (light.state !== 'idle' || !state.mode) return;      // esperando el semáforo
+  const r = state.route;
+  state.simDist = Math.min(r.total, state.simDist + SIM_SPEED*0.5);
+  updatePos(pointAt(state.simDist), 5);
+  if (!state.mode) return;                                // ya llegó
+  const k = state.simCross;
+  if (k < r.steps.length && state.simDist >= r.stepCum[k] - 2){ state.simCross++; startCrossing(); }
+}
+
+/* ============================================================
+   6. NAVEGACIÓN POR VOZ
+   ============================================================ */
+function announceStep(i, prefix=''){
+  const s = state.route.steps[i];
+  if (!s) return;
+  const extra = i === 0 && s.dist > 0 ? ` Sigue ${sayDist(s.dist)}.` : '';
+  speak(prefix + (i === 0 ? '' : 'Adelante: ') + s.text.replace(/\.$/, '') + '.' + extra, {kind:'nav', interrupt:true});
+}
+
+function startNav(mode){
+  if (!state.route){ speak('Primero elige un destino.', {kind:'info', interrupt:true}); return; }
+  primeAudio(); stopNav(true);
+  state.nextStep = 1; state.warned.clear();          // la indicación 0 se anuncia aquí, el resto en progress()
+  announceStep(0, mode === 'sim' ? 'Simulación iniciada. ' : 'Recorrido iniciado. ');
+  if (mode === 'gps'){
+    state.mode = 'gps';
+    if (!startWatch()){ state.mode = null; return; }
+  } else {
+    startSim();
+  }
+  setNavButtons(true);
+}
+function stopNav(silent){
+  if (state.watchId !== null){ navigator.geolocation.clearWatch(state.watchId); state.watchId = null; }
+  clearInterval(state.simTimer); state.simTimer = null;
+  const was = state.mode;
+  state.mode = null; stopCrossing(); setNavButtons(false);
+  if (!silent && was) speak('Recorrido detenido.', {kind:'info', interrupt:true});
+}
+function setNavButtons(on){ $('btnStop').disabled = !on; $('btnGps').disabled = on; $('btnSim').disabled = on; }
+
+function progress(p){
+  const r = state.route;
+  if (!r || !state.mode) return;
+  if (haversine(p, r.path[r.path.length-1]) < 20){
+    speak('Has llegado a tu destino.', {kind:'nav', interrupt:true}); vibrate([200,100,200]); stopNav(true); return;
+  }
+  const s = r.steps[state.nextStep];
+  if (s && s.start && haversine(p, s.start) < STEP_RADIUS){ announceStep(state.nextStep); state.nextStep++; }
+
+  state.reports.forEach(rep => {                       // avisos de reportes cercanos
+    const d = haversine(p, rep);
+    if (d < ALERT_RADIUS && !state.warned.has(rep.id)){
+      state.warned.add(rep.id);
+      speak(`Atención, ${TYPES[rep.type].say}, a ${Math.round(d)} metros.`, {kind:'alert', interrupt:true});
+      vibrate([250,120,250]);
+    } else if (d > 60) state.warned.delete(rep.id);
+  });
+
+  if (state.mode === 'gps'){                            // desvío (solo con GPS real)
+    const off = haversine(p, r.path[nearestIdx(p)]);
+    if (off > 50 && Date.now() - state.lastOff > 20000){
+      state.lastOff = Date.now();
+      speak('Te desviaste de la ruta. Pulsa Recalcular ruta.', {kind:'alert', interrupt:true});
+    }
+  }
+}
+function speakRemaining(){
+  if (!state.route){ speak('Todavía no hay una ruta.', {kind:'info', interrupt:true}); return; }
+  const rem = state.pos ? Math.max(0, state.route.total - state.route.cum[nearestIdx(state.pos)]) : state.route.total;
+  speak(`Faltan ${sayDist(rem)}, unos ${sayMin(rem)}.`, {kind:'nav', interrupt:true});
+}
+
+/* ============================================================
+   7. REPORTES DE LA COMUNIDAD
+   ============================================================ */
+function loadReports(){
+  try { state.reports = JSON.parse(store.get(REP_STORAGE) || '[]'); } catch(e){ state.reports = []; }
+}
+function saveReports(){ store.set(REP_STORAGE, JSON.stringify(state.reports)); }
+
+function addReport(type, at){
+  const pos = at || state.pos || (state.map ? state.map.getCenter().toJSON() : DEFAULT_START);
+  const rep = { id:'r' + Date.now() + Math.floor(Math.random()*1000), type, lat:pos.lat, lng:pos.lng, ts:Date.now(), confirms:1 };
+  state.reports.push(rep); saveReports(); renderReports();
+  return rep;
+}
+function reportNow(type){
+  primeAudio();
+  addReport(type);
+  speak(`Reporte guardado: ${TYPES[type].say}. Los demás peatones serán avisados.`, {kind:'info', interrupt:true});
+  vibrate(120);
+}
+const ago = ts => { const m = Math.round((Date.now()-ts)/60000); return m < 1 ? 'ahora' : m < 60 ? `hace ${m} min` : `hace ${Math.round(m/60)} h`; };
+
+function renderReports(){
+  state.repMarkers.forEach(m => m.map = null); state.repMarkers = [];
+  const ul = $('reportList'); ul.innerHTML = '';
+  if (!state.reports.length){
+    const li = document.createElement('li'); li.className = 'hint'; li.textContent = 'Aún no hay reportes. Usa los botones de arriba para crear el primero.'; ul.append(li);
+  }
+  [...state.reports].sort((a,b) => b.ts - a.ts).forEach(rep => {
+    const t = TYPES[rep.type];
+    const li = document.createElement('li'); li.className = 'rep';
+    const ico = document.createElement('span'); ico.className = 'ico'; ico.textContent = t.ico;
+    const txt = document.createElement('div'); txt.className = 'txt';
+    const name = document.createElement('div'); name.textContent = t.label;
+    const meta = document.createElement('div'); meta.className = 'meta';
+    meta.textContent = `${ago(rep.ts)}, ${rep.confirms} ${rep.confirms === 1 ? 'confirmación' : 'confirmaciones'}` +
+      (state.pos ? `, a ${fmtDist(haversine(state.pos, rep))}` : '');
+    txt.append(name, meta);
+    const btn = document.createElement('button'); btn.textContent = 'Sigue ahí';
+    btn.setAttribute('aria-label', `Confirmar reporte: ${t.label}`);
+    btn.onclick = () => { rep.confirms++; saveReports(); renderReports(); speak('Gracias, confirmaste el reporte.', {kind:'info'}); };
+    li.append(ico, txt, btn); ul.append(li);
+
+    if (state.map){
+      const pin = document.createElement('div'); pin.className = 'pin'; pin.textContent = t.ico;
+      const mk = new state.G.AdvancedMarkerElement({ map:state.map, position:{lat:rep.lat, lng:rep.lng}, content:pin, title:t.label, gmpClickable:true });
+      mk.addEventListener('gmp-click', () => { state.map.panTo({lat:rep.lat, lng:rep.lng}); speak(`${t.label}. ${rep.confirms} confirmaciones.`, {kind:'info', interrupt:true}); });
+      state.repMarkers.push(mk);
+    }
+  });
+}
+function seedOnRoute(){
+  if (!state.route){ speak('Primero traza una ruta para cargar ejemplos sobre ella.', {kind:'info', interrupt:true}); return; }
+  [['alcantarilla',.3,4],['obstaculo',.55,12],['obra',.8,25]].forEach(([type,f,mins]) => {
+    const rep = addReport(type, pointAt(state.route.total * f)); rep.ts = Date.now() - mins*60000;
+  });
+  saveReports(); renderReports();
+  speak('Cargué tres reportes de ejemplo sobre tu ruta.', {kind:'info', interrupt:true});
+}
+
+/* ============================================================
+   8. COMANDOS DE VOZ (reconocimiento)
+   ============================================================ */
+function handleCommand(raw){
+  log('Dijiste: «' + raw + '»', 'user');
+  const t = norm(raw);
+  let m;
+  if (/\b(ayuda|comandos)\b/.test(t)) return speak('Puedes decir: ruta a un lugar, iniciar, simular, detener, cuánto falta, repite, estoy en un cruce, o reportar alcantarilla, hueco, obstáculo, obra, semáforo o vehículo.', {kind:'info', interrupt:true});
+  if ((m = t.match(/(?:ruta a|llevame a|quiero ir a|ir a)\s+(.+)/))){ $('dest').value = m[1]; return traceRoute(m[1]); }
+  if (/report/.test(t)){
+    const found = Object.keys(TYPES).find(k => t.includes(k)) || (/carro|moto|bicicleta/.test(t) ? 'vehiculo' : /tapa/.test(t) ? 'alcantarilla' : null);
+    if (found) return reportNow(found);
+    return speak('¿Qué quieres reportar? Di alcantarilla, hueco, obstáculo, obra, semáforo o vehículo.', {kind:'info', interrupt:true});
+  }
+  if (/cruce|cruzar/.test(t)) return startCrossing();
+  if (/cuanto (falta|queda)/.test(t)) return speakRemaining();
+  if (/repite|repetir/.test(t)) return speak(state.lastNav || 'No hay nada que repetir.', {kind:'info', interrupt:true});
+  if (/simul/.test(t)) return startNav('sim');
+  if (/inici|comenz|empez/.test(t)) return startNav('gps');
+  if (/deten|\bpara\b|termin|cancel/.test(t)) return stopNav(false);
+  speak('No te entendí. Di «ayuda» para escuchar los comandos.', {kind:'info', interrupt:true});
+}
+
+function listen(){
+  const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+  if (!SR){ speak('Este navegador no reconoce voz. Usa Google Chrome.', {kind:'alert', interrupt:true}); return; }
+  if (state.listening) return;
+  primeAudio();
+  if ('speechSynthesis' in window) speechSynthesis.cancel();
+  const r = new SR();
+  r.lang = 'es-CO'; r.interimResults = false; r.maxAlternatives = 1;
+  state.listening = true; $('btnVoice').textContent = 'Escuchando…';
+  beep(660, .1);
+  r.onresult = e => handleCommand(e.results[0][0].transcript);
+  r.onerror = e => {
+    if (e.error === 'not-allowed' || e.error === 'service-not-allowed') speak('Permite el micrófono en el navegador para usar comandos de voz.', {kind:'alert', interrupt:true});
+    else if (e.error === 'no-speech') speak('No te escuché. Intenta de nuevo.', {kind:'info', interrupt:true});
+    else speak('El reconocimiento de voz falló: ' + e.error, {kind:'alert', interrupt:true});
+  };
+  r.onend = () => { state.listening = false; $('btnVoice').textContent = 'Comando de voz'; };
+  try { r.start(); } catch(e){ state.listening = false; $('btnVoice').textContent = 'Comando de voz'; }
+}
+
+/* ============================================================
+   9. ARRANQUE: cargar Google Maps con la API key
+   ============================================================ */
+// Cargador oficial de Google (el mismo de su documentación): define google.maps.importLibrary
+function bootstrapMaps(params){
+  (g=>{var h,a,k,p="The Google Maps JavaScript API",c="google",l="importLibrary",q="__ib__",m=document,b=window;b=b[c]||(b[c]={});var d=b.maps||(b.maps={}),r=new Set,e=new URLSearchParams,u=()=>h||(h=new Promise(async(f,n)=>{await (a=m.createElement("script"));e.set("libraries",[...r]+"");for(k in g)e.set(k.replace(/[A-Z]/g,t=>"_"+t[0].toLowerCase()),g[k]);e.set("callback",c+".maps."+q);a.src=`https://maps.${c}apis.com/maps/api/js?`+e;d[q]=f;a.onerror=()=>h=n(Error(p+" could not load."));a.nonce=m.querySelector("script[nonce]")?.nonce||"";m.head.append(a)}));d[l]?console.warn(p+" only loads once. Ignoring:",g):d[l]=(f,...n)=>r.add(f)&&u().then(()=>d[l](f,...n))})(params);
+}
+
+function showSetup(msg){
+  $('setup').classList.add('on');
+  $('setupErr').textContent = msg || '';
+  $('keyInput').focus();
+}
+
+async function boot(key){
+  $('setup').classList.remove('on');
+  // Google llama a esta función si la key es inválida o está mal restringida
+  window.gm_authFailure = () => {
+    store.del(KEY_STORAGE);
+    showSetup('Google rechazó la key. Revisa que esté completa, que tenga habilitada la Maps JavaScript API y que su restricción permita http://localhost/*. Pega una key válida para reintentar.');
+  };
+  try {
+    bootstrapMaps({ key, v:'weekly', language:'es', region:'CO' });
+    bootstrapped = true;
+    const [maps, marker, routes] = await Promise.all([
+      google.maps.importLibrary('maps'),
+      google.maps.importLibrary('marker'),
+      google.maps.importLibrary('routes')
+    ]);
+    state.G = { Polyline: google.maps.Polyline, LatLngBounds: google.maps.LatLngBounds,
+                AdvancedMarkerElement: marker.AdvancedMarkerElement, Route: routes.Route };
+    state.map = new maps.Map($('map'), {
+      center: DEFAULT_START, zoom: 16, mapId: 'DEMO_MAP_ID',        // el mapId es obligatorio para los marcadores avanzados
+      disableDefaultUI: true, zoomControl: true, gestureHandling: 'greedy', clickableIcons: false
+    });
+    const me = document.createElement('div'); me.className = 'me';
+    state.meMarker = new state.G.AdvancedMarkerElement({ map:state.map, position:DEFAULT_START, content:me, title:'Tu posición' });
+    state.map.addListener('click', e => {
+      if (state.mode){ speak('Detén el recorrido para cambiar el destino.', {kind:'info', interrupt:true}); return; }
+      const p = e.latLng.toJSON();
+      $('dest').value = `${p.lat.toFixed(5)}, ${p.lng.toFixed(5)}`;
+      traceRoute(p);
+    });
+    renderReports();
+    log('Mapa de Google cargado. Escribe un destino o toca el mapa.', 'info');
+  } catch (e) {
+    console.error(e);
+    showSetup('No se pudo cargar Google Maps (' + (e && e.message ? e.message : e) + '). Revisa tu conexión y la key.');
+  }
+}
+
+/* ============================================================
+   10. CONEXIÓN DE BOTONES
+   ============================================================ */
+function init(){
+  loadReports();
+  const grid = $('reportGrid');
+  Object.entries(TYPES).forEach(([k,t]) => {
+    const b = document.createElement('button');
+    const i = document.createElement('span'); i.className = 'ico'; i.textContent = t.ico; i.setAttribute('aria-hidden','true');
+    b.append(i, document.createTextNode(t.label));
+    b.onclick = () => reportNow(k);
+    grid.append(b);
+  });
+  renderReports(); renderLight();
+
+  const go = () => { const v = $('dest').value.trim(); if (v) traceRoute(v); else speak('Escribe un destino primero.', {kind:'info', interrupt:true}); };
+  $('btnRoute').onclick = go;
+  $('dest').addEventListener('keydown', e => { if (e.key === 'Enter') go(); });
+  $('btnGps').onclick = () => startNav('gps');
+  $('btnSim').onclick = () => startNav('sim');
+  $('btnStop').onclick = () => stopNav(false);
+  $('btnVoice').onclick = listen;
+  $('btnRecalc').onclick = () => { if (state.dest) traceRoute(state.dest); else speak('Todavía no hay destino.', {kind:'info', interrupt:true}); };
+  $('btnCross').onclick = startCrossing;
+  $('btnSeed').onclick = seedOnRoute;
+  $('btnClear').onclick = () => { state.reports = []; state.warned.clear(); saveReports(); renderReports(); };
+  $('btnMute').onclick = () => {
+    state.muted = !state.muted;
+    $('btnMute').textContent = state.muted ? 'Voz desactivada' : 'Voz activada';
+    $('btnMute').setAttribute('aria-pressed', String(state.muted));
+    if (state.muted && 'speechSynthesis' in window) speechSynthesis.cancel();
+  };
+
+  $('btnLoad').onclick = () => {
+    const k = $('keyInput').value.trim();
+    if (!/^\S{20,}$/.test(k)){ $('setupErr').textContent = 'La key parece incompleta. Cópiala de nuevo sin espacios.'; return; }
+    store.set(KEY_STORAGE, k);
+    if (bootstrapped) location.reload();       // el cargador de Google solo funciona una vez por página
+    else boot(k);
+  };
+  $('keyInput').addEventListener('keydown', e => { if (e.key === 'Enter') $('btnLoad').click(); });
+
+  const saved = store.get(KEY_STORAGE);
+  if (saved){ $('keyInput').value = saved; boot(saved); } else showSetup();
+}
+init();
+})();
+</script>
+</body>
+</html>
